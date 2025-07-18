@@ -1,0 +1,1274 @@
+---
+title: "Spatial Activity and Observing Mindfulness Enhance Episodic Memory, While Acting with Awareness and Body-Focused Imagery Impair It: A Sensorimotor-Cognitive Analysis"
+subtitle: "STA490 Collaborative Project"
+author: "Ellen Zhang"
+format: pdf
+editor: visual
+---
+
+# Abstract
+
+This study investigates how sensorimotor involvement, general physical fitness, proprioception, interoception, mindfulness, and mental imagery relate to episodic memory performance. Survey data were collected from 269 undergraduate students using validated psychological instruments. The dataset was carefully cleaned to remove inattentive or incomplete responses, and composite and subscale scores were computed according to established scoring methods.
+
+Participants reported their engagement in four types of physical activity (team, individual, spatial, and non-spatial), as well as their fitness levels across life stages. While most physical activity types were not significantly related to memory, professional-level spatial involvement showed a marginal positive association with episodic memory scores. Among the psychological constructs, mindfulness – observing was significantly associated with higher memory performance, whereas mindfulness – acting with awareness and body-focused mental imagery were significantly associated with lower scores. Other components of interoception and proprioception showed weaker, non-significant associations.
+
+These findings suggest that external attentional focus and spatial engagement may enhance autobiographical memory, while inward bodily focus may detract from it. Given the self-report nature of the data and the homogeneity of the sample, further research with more diverse populations and objective measures is needed to confirm and extend these results.
+
+# 1. Introduction
+
+Episodic memory is the ability to relive personal events in vivid detail. Rather than recalling only facts—like the date of a trip—this form of memory allows us to mentally re-experience the sights, sounds, and emotions tied to past moments, such as the sound of waves crashing on a beach or the laughter shared with friends at a celebration.
+
+It is increasingly proposed that the way we sense and move through the world—our sensorimotor abilities—may influence the accuracy and richness of such memories. The integration of physical movement with sensory input, including balance, touch, and vision, may affect how experiences are encoded and retrieved, potentially leading to more vivid and immersive recollections.
+
+To explore this idea, we collected data through a large online survey administered to undergraduate students, aiming to answer a central question: "Does sensorimotor ability influence episodic memory performance?" If a stronger connection between perception and movement translates into richer memories, understanding why could help us find ways to protect or even enhance this fundamental cognitive process.
+
+Furthermore, several complementary factors may help explain how and why sensorimotor abilities relate to episodic memory. These include an individual's general level of physical fitness across different life stages, which may influence cognitive functioning; proprioception, or the sense of the body's position and movement; and interoception, which refers to the awareness of internal bodily signals such as heartbeat or hunger. Cognitive factors are also considered, including trait mindfulness—the tendency to maintain calm, non-judgmental attention to the present moment—and mental imagery, the ability to generate vivid internal sensory representations. By investigating these constructs, we aim to understand whether individuals with more refined sensorimotor skills or greater bodily awareness tend to recall personal experiences more vividly, and whether strengthening these abilities could help support episodic memory. To explore these relationships, we apply one-way ANOVA and Kruskal-Wallis tests to compare memory scores across different groups, and use multiple linear regression to identify which factors are most strongly associated with memory performance.
+
+In this report, we first describe the data collection process and outline the steps taken to clean and prepare the dataset. We then visualize the data to explore potential patterns and trends related to episodic memory performance. Next, we apply statistical methods—including one-way ANOVA, Kruskal-Wallis tests, and multiple linear regression—to examine whether sensorimotor ability and related constructs predict differences in memory scores. Finally, we present the results, discuss potential limitations such as sampling biases and self-report measures, and conclude with key findings and suggestions for future research.
+
+# 2. Data
+
+```{r Imports, echo=FALSE, warning=FALSE, message=FALSE}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(gridExtra)
+library(kableExtra)
+library(corrplot)
+# install.packages("patchwork")
+library(patchwork)
+library(MASS)
+library(glmnet)
+library(car)
+# install.packages("broom")
+library(broom)
+# install.packages("Metrics")
+library(Metrics)
+library(ggplot2)
+# install.packages("reshape2")
+library(reshape2)
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+
+# import raw data
+raw <- read_excel("SEMA_Data_Raw.xlsx")
+
+# weights file
+epi.weight <- read_excel("SAM_scoring_sample.xlsx", sheet = "EpisodicWeights")
+sem.weight <- read_excel("SAM_scoring_sample.xlsx", sheet = "SemanticWeights")
+
+# remove the row of column description
+raw <- raw[-1, ]
+
+# remove irrelevant columns, mostly about personal information
+clean.data <- raw %>% dplyr::select(-c(1:5, 7:18))
+
+# remove participants who would like to be excluded from this study
+clean.data <- clean.data %>% filter(Q25 == "2" | is.na(Q25))
+```
+
+```{r Age, echo=FALSE}
+# additional handling on age
+clean.data <- clean.data %>% 
+  mutate(YoB = as.numeric(substr(DoB, 1, 4)),
+         Age = 2023 - YoB)
+```
+
+```{r Sensorimotor Awareness & Fitness Levels, echo=FALSE}
+# Q38: chronic pain (handle later if needed)
+# Q43-44: contemplative practices (handle later if needed)
+clean.data <- clean.data %>%
+  rename(Chronic.Pain = Q38,
+         Contemplate.Prac = Q43) %>% 
+  mutate(Chronic.Pain = case_when(Chronic.Pain == "1" ~ TRUE,
+                                  .default = FALSE),
+         Contemplate.Prac = case_when(Contemplate.Prac == "1" ~ TRUE,
+                                       .default = FALSE))
+
+# remove participants who complete this survey in less than 2 minutes and/or with incomplete 
+# Sensorimotor Awareness response (Q15_1-Q15_5, Q16)
+clean.data$Duration <- as.numeric(clean.data$Duration)
+clean.data <- clean.data %>% filter(Duration >= 120) %>% 
+  filter(!is.na(Q15_1))
+
+# turn into numerical values
+SensorAware <- c("Q15_1", "Q15_2", "Q15_3", "Q15_4", "Q15_5")
+clean.data <- clean.data %>%
+  mutate(across(all_of(SensorAware), as.numeric),
+         SensorAware.total = Q15_1 + Q15_2 + Q15_3 + Q15_4 + Q15_5)
+
+# create the following variables: 
+# the participant's highest involvement in team sports
+# the participant's highest involvement in individual sports
+# the participant's highest involvement in more spatial sports
+# the participant's highest involvement in less spatial sports
+clean.data <- clean.data %>%   
+  rowwise() %>%
+  mutate(Team.Involvement = max(Q15_1, Q15_2),
+         Individual.Involvement = max(Q15_3, Q15_4),
+         Spatial.Involvement = max(Q15_1, Q15_3),
+         NonSpatial.Involvement = max(Q15_2, Q15_4))
+
+
+level.labels1 <- c("No Involvement", "Beginner", "Intermediate", "Professional", "Professional")
+
+# qpply Labels and convert to Factor
+for (i in c("Team.Involvement", "Individual.Involvement", "Spatial.Involvement", "NonSpatial.Involvement")) {
+  clean.data[[i]] <- factor(clean.data[[i]], levels = 1:5, labels = level.labels1)
+}
+
+# rename original variables for clarity
+clean.data <- clean.data %>%
+  rename(Team.Spatial.Involvement = Q15_1,
+         Team.Nonspatial.Involvement = Q15_2,
+         Indv.Spatial.Involvement = Q15_3,
+         Indv.Nonspatial.Involvement = Q15_4)
+
+# Q17-18 self-entered years and age about physical activities, skip for now due to lack of reliability
+
+# Q19_1-Q19_4: levels of general fitness at each age range
+for(i in 1:4) {
+  col_name <- paste("Q19_", i, sep = "")
+  clean.data[[col_name]] <- as.numeric(clean.data[[col_name]])
+}
+
+# create the following variables: 
+# [fit = moderately fit / fit / extremely fit]
+# if the participant considers himself/herself as fit in pre-teen years (<13)
+# if the participant considers himself/herself as fit in teenage years (13-17)
+# if the participant considers himself/herself as fit in adulthood (18+)
+clean.data <- clean.data %>% 
+  mutate(Fit.PreTeen = case_when(Q19_1 >= 3 & Q19_1 < 6 ~ TRUE,
+                                 Q19_1 == 6 ~ NA,
+                                 .default = FALSE),
+         Fit.Teen = case_when(Q19_2 >= 3 & Q19_2 < 6 ~ TRUE,
+                              Q19_2 == 6 ~ NA,
+                              .default = FALSE),
+         Fit.Adult = case_when((Q19_3 >= 3 & Q19_3 < 6) | (Q19_4 >= 3 & Q19_4 < 6)~ TRUE,
+                               Q19_3 == 6 & Q19_4 == 6 ~ NA,
+                               .default = FALSE),
+         Past.Fitness.Numerical = Q19_1,
+         Current.Fitness.Numerical = case_when(
+           is.na(Age) & Q19_4 != 6 ~ Q19_4,
+           is.na(Age) & Q19_4 == 6 & Q19_3 != 6 ~ Q19_3,
+           is.na(Age) & Q19_4 == 6 & Q19_3 == 6 & Q19_2 != 6 ~ Q19_2,
+           Age >= 25 & Q19_4 != 6 ~ Q19_4,
+           Age >= 25 & Q19_4 == 6 ~ Q19_3,
+           Age < 25 & Age >= 18 & Q19_3 != 6 ~ Q19_3,
+           Age < 25 & Age >= 18 & Q19_3 == 6 ~ Q19_2,
+           Age < 18 & Age >= 13 & Q19_3 != 6 ~ Q19_2,
+           Age < 18 & Age >= 13 & Q19_3 == 6 ~ Q19_1))
+
+level.labels2 <- c("Not fit at all", 
+                  "Slightly fit", 
+                  "Moderately fit", 
+                  "Fit", 
+                  "Extremely fit", 
+                  "Haven't reached this age")
+
+for (i in 1:4) {
+  col_name <- paste("Q19_", i, sep = "")
+  clean.data[[col_name]] <- level.labels2[clean.data[[col_name]]]
+}
+
+clean.data <- clean.data %>%
+  rename(PreTeen.Fitness = Q19_1,
+         Teen.Fitness = Q19_2,
+         Adult.Fitness = Q19_3,
+         Mature.Fitness = Q19_4)
+
+# Team.Involv, Spatial.Involv as binary variables, False - Not involved, True - Invovlved
+clean.data <- clean.data %>% 
+  mutate(Team.Involv = 
+           case_when(Team.Spatial.Involvement == "No Involvement" & Team.Nonspatial.Involvement == "No Involvement" ~ FALSE,
+                     .default = TRUE),
+         Spatial.Involv = 
+           case_when(Team.Spatial.Involvement == "No Involvement" & Indv.Spatial.Involvement == "No Involvement" ~ FALSE,
+                     .default = TRUE),
+         Past.Fitness = Past.Fitness.Numerical,
+         Current.Fitness = Current.Fitness.Numerical)
+
+clean.data$Past.Fitness <- factor(clean.data$Past.Fitness,
+                                  levels = 1:5,
+                                  labels = c("Not fit at all",
+                                             "Slightly fit",
+                                             "Moderately fit",
+                                             "Fit",
+                                             "Extremely fit"))
+
+clean.data$Current.Fitness <- factor(clean.data$Current.Fitness,
+                                     levels = 1:5,
+                                     labels = c("Not fit at all",
+                                                "Slightly fit",
+                                                "Moderately fit",
+                                                "Fit",
+                                                "Extremely fit"))
+```
+
+```{r Memory Scores, echo=FALSE}
+# Q13_6 QUESTION TO CHECK PARTICIPENTS ATTENTION: 
+clean.data <- clean.data %>% filter(Q13_6 == "4") # removed 25 participants
+
+# Q11_1-Q11_8: Episodic
+for (i in 1:8) {
+  old_name <- paste("Q11 _", i, sep = "")
+  new_name <- paste("Q11_", i, sep = "")
+  clean.data <- clean.data %>%
+    rename(!!new_name := !!sym(old_name))
+}
+
+
+for (i in 1:8) {
+  col_name <- paste("Q11_", i, sep = "")
+  
+  clean.data <- clean.data %>%
+    mutate(!!col_name := case_when(
+      .data[[col_name]] == "1" ~ as.numeric(epi.weight[i, 2]),
+      .data[[col_name]] == "2" ~ as.numeric(epi.weight[i, 3]),
+      .data[[col_name]] == "3" ~ as.numeric(epi.weight[i, 4]),
+      .data[[col_name]] == "4" ~ as.numeric(epi.weight[i, 5]),
+      .data[[col_name]] == "5" ~ as.numeric(epi.weight[i, 6]),
+      TRUE ~ NA_real_  # Keep missing values
+    ))
+}
+
+clean.data <- clean.data %>%
+  rowwise() %>%
+  mutate(Episodic.Memo = sum(c_across(starts_with("Q11_")), na.rm = TRUE) + 100)
+
+# Q12_1-Q12_6: Semantic
+for (i in 1:6) {
+  col_name <- paste("Q12_", i, sep = "")
+
+  clean.data <- clean.data %>%
+    mutate(!!col_name := case_when(
+      .data[[col_name]] == "1" ~ as.numeric(sem.weight[i, 2]),
+      .data[[col_name]] == "2" ~ as.numeric(sem.weight[i, 3]),
+      .data[[col_name]] == "3" ~ as.numeric(sem.weight[i, 4]),
+      .data[[col_name]] == "4" ~ as.numeric(sem.weight[i, 5]),
+      .data[[col_name]] == "5" ~ as.numeric(sem.weight[i, 6]),
+      TRUE ~ NA_real_  # Keep missing values
+    ))
+}
+
+clean.data <- clean.data %>%
+  rowwise() %>%
+  mutate(Semantic.Memo = sum(c_across(starts_with("Q12_")), na.rm = TRUE) + 100)
+
+# Differences in Episodic and Semantic Memory Score
+clean.data <- clean.data %>% rowwise() %>%
+  mutate(Memo.Diff = Episodic.Memo - Semantic.Memo)
+
+# rest of Q13_1-Q13-7: Spatial (handle later if needed)
+# Q14_1-Q14_6: Future (handle later if needed)
+```
+
+```{r Mental Imagery, echo=FALSE}
+# remove participants with incomplete Mental Imagery response
+clean.data <- clean.data %>% filter(!is.na(Q4_1))
+
+# subscales
+Sight <- c("Q4_1", "Q4_2", "Q4_3")
+Hearing <- c("Q5_1", "Q5_2", "Q5_3")
+Smell <- c("Q6_1", "Q6_2", "Q6_3")
+Taste <- c("Q7_1", "Q7_2", "Q7_3")
+Touch <- c("Q8_1", "Q8_2", "Q8_3")
+BodilySensations <- c("Q9_1", "Q9_2", "Q9_3")
+Feeling <- c("Q10_1", "Q10_2", "Q10_3")
+
+clean.data <- clean.data %>%
+  mutate(across(all_of(c(Sight, Hearing, Smell, Taste,
+                       Touch, BodilySensations, Feeling)),
+                as.numeric)) %>%
+  rowwise() %>%
+  mutate(MI.Sight = sum(Q4_1, Q4_2, Q4_3),
+         MI.Hearing = sum(Q5_1, Q5_2, Q5_3),
+         MI.Smell = sum(Q6_1, Q6_2, Q6_3),
+         MI.Taste = sum(Q7_1, Q7_2, Q7_3),
+         MI.Touch = sum(Q8_1, Q8_2, Q8_3),
+         MI.BodySens = sum(Q9_1, Q9_2, Q9_3),
+         MI.Feeling = sum(Q10_1, Q10_2, Q10_3),
+         MI.Total = sum(Q4_1, Q4_2, Q4_3,
+                        Q5_1, Q5_2, Q5_3,
+                        Q6_1, Q6_2, Q6_3,
+                        Q7_1, Q7_2, Q7_3,
+                        Q8_1, Q8_2, Q8_3,
+                        Q9_1, Q9_2, Q9_3,
+                        Q10_1, Q10_2, Q10_3))
+```
+
+```{r Interoception, echo=FALSE}
+# remove participants with incomplete Interoception response
+clean.data <- clean.data %>% filter(!is.na(Q3_1))
+
+for(i in 1:18) {
+  col_name <- paste("Q3_", i, sep = "")
+  clean.data[[col_name]] <- as.numeric(clean.data[[col_name]])}
+
+# subscale - Cardiorespiratory Activation, Cardiorespiratory Deactivation, Gastroesophageal
+clean.data <- clean.data %>%
+  rowwise() %>%
+  mutate(Interoception.CardioAct = sum(c(Q3_1, Q3_2, Q3_3, Q3_4, Q3_5, Q3_6)),
+         Interoception.CardioDeact = sum(c(Q3_7, Q3_8, Q3_9, Q3_10, Q3_11, Q3_12)),
+         Interoception.Gastro = sum(c(Q3_13, Q3_14, Q3_15, Q3_16, Q3_17, Q3_18)),
+         Interoception.Total = 
+           Interoception.CardioAct + 
+           Interoception.CardioDeact + 
+           Interoception.Gastro)
+```
+
+```{r Perceptual Processing, echo=FALSE}
+# this set of survey question has more than 80% of missing values, therefore they are all removed from the subsequent analysis
+clean.data <- clean.data %>% dplyr::select(-c(PP1, PP2, PP4, PP5, PP7, PP3_1, PP6_1, PP8_1))
+```
+
+```{r Proprioception, echo=FALSE}
+for (i in 1:12) {
+  old_name <- paste0("Q2 _", i)  # fix space issue
+  new_name <- paste0("Q2_", i)
+
+  if (old_name %in% colnames(clean.data)) {  # ensure column exists before renaming
+    clean.data <- clean.data %>%
+      rename(!!new_name := !!sym(old_name))
+  }
+}
+
+# remove participants with incomplete Proprioception response
+clean.data <- clean.data %>% filter(!is.na(Q2_1))
+
+# some items need to be reversed
+clean.data <- clean.data %>%
+  mutate(across(c("Q2_1", "Q2_2", "Q2_3", "Q2_4", "Q2_5", "Q2_12"),
+                ~ case_when(
+                  .x == "1" ~ 7,
+                  .x == "2" ~ 6,
+                  .x == "3" ~ 5,
+                  .x == "4" ~ 4,
+                  .x == "5" ~ 3,
+                  .x == "6" ~ 2,
+                  .x == "7" ~ 1,
+                  TRUE ~ as.numeric(.x)  # Preserve missing values
+                )))
+
+for(i in 1:12) {
+  col_name <- paste("Q2_", i, sep = "")
+  clean.data[[col_name]] <- as.numeric(clean.data[[col_name]])}
+
+# subscale - Attention Regulation, Postural Awareness
+clean.data <- clean.data %>%
+  rowwise() %>%
+  mutate(Proprioception.Attent = sum(c(Q2_1, Q2_2, Q2_3, Q2_4, Q2_5, Q2_12)),
+         Proprioception.PosturalAware = sum(c(Q2_6, Q2_7, Q2_8, Q2_9, Q2_10, Q2_11)),
+         Proprioception.Total = Proprioception.Attent + Proprioception.PosturalAware)
+```
+
+```{r Trait Mindfulness, echo=FALSE}
+# Q1_24 QUESTION TO CHECK PARTICIPENTS ATTENTION:
+clean.data <- clean.data %>% filter(Q1_24 == "3")
+
+# remove participants with incomplete Trait Mindfulness response
+clean.data <- clean.data %>% filter(!is.na(Q1_40))
+
+for(i in 1:40) {
+  col_name <- paste("Q1_", i, sep = "")
+  clean.data[[col_name]] <- as.numeric(clean.data[[col_name]])}
+
+# subscale - Observe, Describe, Nonjudging, Nonreact, Act with Awareness
+clean.data = clean.data %>%
+  rowwise() %>%
+  mutate(Mindfulness.Observe = sum(c(Q1_1, Q1_6, Q1_11, Q1_15,
+                                     Q1_20, Q1_27, Q1_32, Q1_37)),
+         Mindfulness.Describe = sum(c(Q1_2, Q1_7, Q1_12, Q1_16,
+                                      Q1_22, Q1_28, Q1_33, Q1_38)),
+         Mindfulness.Nonjudging = sum(c(Q1_3, Q1_10, Q1_14,
+                                        Q1_17, Q1_26, Q1_31,
+                                        Q1_36, Q1_40)),
+         Mindfulness.Nonreact = sum(c(Q1_4, Q1_9, Q1_19, Q1_21,
+                                      Q1_25, Q1_30, Q1_34)),
+         Mindfulness.ActAware = sum(c(Q1_5, Q1_8, Q1_13, Q1_18,
+                                      Q1_23, Q1_29, Q1_35, Q1_39)),
+         Mindfulness.Total = Mindfulness.Observe + Mindfulness.Describe 
+         + Mindfulness.Nonjudging + Mindfulness.Nonreact + Mindfulness.ActAware)
+```
+
+```{r Exports, echo=FALSE}
+# final dataset for subsequent analysis
+cleaned <- clean.data %>% dplyr::select(c(3, 4, 6:9, 22:25, 144:184))
+
+# output this data
+# write.csv(cleaned, "/Users/zhangxuanhe/Desktop/STA490 Consulting Project/cleaned_feb28.csv", row.names = FALSE)
+```
+
+## 2.1 Data Collection and Preparation
+
+The data was self-reported through an online survey form completed by PSY100 students enrolled during the 2023 academic year at the University of Toronto. Participants were required to complete the survey to receive partial course credits. To reduce response bias, the order of the questionnaires and their items was randomized.
+
+The survey included questions assessing sensorimotor ability, along with 5 other validated pre-existing questionnaires, as summarized in Table 1 below.
+
+| Validated Survey Name | Variable Measured |
+|------------------------------------|-----------------------------------:|
+| Survey of Autobiographical Memory (SAM; Palombo et al., 2013) | Episodic Memory |
+| Postural Awareness Scale (PAS; Colgan et al., 2021) | Proprioception |
+| Three-Domain Interoceptive Sensations Questionnaire (THISQ; Vlemincx et al., 2021) | Interoception |
+| Five Facet Mindfulness Questionnaire (FFMQ; Baer et al., 2006) | Trait Mindfulness |
+| Plymouth Sensory Imagery Questionnaire (Psi-Q; Andrade et al., 2014) | Mental Imagery |
+
+: Validated Surveys Used and Corresponding Variables Measured
+
+The original dataset comprises **269** observations and **169** variables, collected from distinct participants. The large number of variables is due to multiple sub-questions within each survey component. Given the nature of the survey, missing values are expected, as some participants may have skipped questions or selected "N/A" for certain items. Additionally, inconsistent or random responses may indicate a lack of serious engagement, contributing to data irregularities. No duplicated observations were detected.
+
+## 2.2 Data Cleaning
+
+The data cleaning process involved several steps. First, participants were removed if they self-excluded (indicated a desire to withdraw), completed the survey in fewer than two minutes, or failed embedded attention checks. Such conditions typically suggest inattentive or rushed participation. Next, columns containing personal or sensitive information were dropped, and the remaining score-based variables were converted to numerical scales, with reverse-coding applied where necessary. Any survey components exhibiting high rates of missingness—such as particular Perceptual Processing items—were removed from further analysis. Finally, observations were excluded if they had incomplete responses for essential constructs, including sensorimotor ability, proprioception, interoception, mindfulness, and mental imagery, thereby ensuring a complete dataset for primary and secondary measures.
+
+### 2.2.1 Primary Response - Episodic Memory Score
+
+The Survey of Autobiographical Memory (SAM; Palombo et al., 2013) consists of four question matrices measuring episodic, semantic, spatial, and future memory. Since semantic, spatial, and future memory are beyond the scope of this research, only the episodic component was retained. To ensure attentiveness, the survey included a validity check question: *"If you have read this question, select agree somewhat"*, and 25 participants who did not provide the correct response were removed.
+
+The SAM episodic memory score is calculated by converting each survey response (rated on a 5-point scale) into a weighted value based on a scoring system from Palombo et al. (2013) paper. These weights reflect how strongly each response relates to episodic memory ability. The weighted scores for all episodic memory questions are then summed, and 100 is added to ensure the final score is on a meaningful scale, with an average score around 100. This method provides a standardized way to measure self-reported episodic memory ability.
+
+### 2.2.2 Primary Predictor - Sensorimotor Ability
+
+To analyze sensorimotor ability more precisely, physical activities in the survey were categorized along two dimensions: team vs. individual sports and high vs. low spatial movement. This classification resulted in four distinct categories, with participants rating their involvement on a five-level scale from *No Involvement to Professional.*
+
+Additionally, to ensure clarity and facilitate analysis, each participant's highest level of engagement in each category was recorded separately. Responses were standardized by merging *Professional* and *Expert* into a single level of engagement *(Expert)*. Activity labels were refined to clearly distinguish between team and individual participation, as well as between spatial and non-spatial activities. This structure allows for an independent analysis of how different types of physical activity influence cognitive performance.
+
+### 2.2.3 Secondary Predictors - **Level of General Fitness Across Life Stages**
+
+To further investigate the relationship between sensorimotor ability and memory, we examined the **Level of General Fitness Across Life Stages**. Fitness levels were self-reported using a 5-level scale ranging from *"Not fit at all"* to *"Extremely fit"*, with an additional *"N/A"* option for age groups participants had not yet reached. Data were collected across four life stages: **0-12 (pre-teen), 13-17 (teenage), 18-24 (adulthood), and 25-35 (mature adulthood).**
+
+For analysis, fitness data were categorized into **Past** and **Current** fitness predictors to assess their impact on memory performance. Past fitness levels were defined as the earliest available fitness rating (pre-teen stage). Current fitness levels were determined based on participants' most recent fitness rating using the following criteria:
+
+1.  If a participant provided a fitness rating for an age group they had not yet reached, their current fitness level was assigned based on the rating corresponding to their actual age.
+
+2.  If a participant did not report a fitness rating for their current age group, the most recent earlier fitness rating was used.
+
+3.  If a participant did not report their age, their most recent fitness rating was directly assigned as their current fitness level.
+
+To ensure sufficient statistical power and maintain representativeness, mismatched or incomplete data were retained rather than excluded, as further reductions in sample size could have compromised analytical stability. The potential biases introduced by these adjustments were acknowledged in subsequent analyses.
+
+### 2.2.4 Secondary Predictors - Proprioception, Interoception, Trait Mindfulness, Mental Imagery
+
+In addition to the primary measures, four validated pre-existing questionnaires were used to assess factors that may influence episodic memory recall. These questionnaires measured **proprioception, interoception, trait mindfulness, and mental imagery**, with composite scores calculated to quantify an individual's overall ability in each domain.
+
+Each questionnaire contained multiple items, some of which captured specific aspects of the construct being measured. These subsets allowed for the calculation of **subscale scores**, providing a more detailed breakdown of different dimensions within each ability. Subscale scores were computed by summing the numeric responses for corresponding items within each construct. A **total score** for each domain was obtained by summing all its subscale scores. This approach provides both an overall measure of each ability and a more detailed breakdown of its specific components, enabling independent analysis of their influence on episodic memory recall.
+
+**Detailed breakdown of subscale scores calculated within each construct:**
+
+-   **Proprioception:** Attention Regulation, Postural Awareness
+
+-   **Interoception:** Cardiorespiratory Activation (awareness of increased heart rate or breathing), Cardiorespiratory Deactivation (awareness of slower heart rate or breathing), Gastroesophageal (awareness of digestive sensations)
+
+-   **Trait Mindfulness:** Observe, Describe, Non-judging, Non-react, Act with Awareness
+
+-   **Mental Imagery:** Sight, Hearing, Smell, Taste, Touch, Feeling, Bodily Sensations
+
+By ensuring a standardized scoring process across all constructs, this approach allows for both broad and detailed analyses of how these sensory, cognitive, and bodily awareness factors influence episodic memory recall.
+
+## 2.4 Data Visualization
+
+```{r, warning=FALSE, out.width="100%", echo=FALSE, fig.cap="Distribution of Episodic Memory Scores Across Involvement Categories"}
+long_data <- cleaned %>%
+  pivot_longer(cols = c(Team.Involvement, Individual.Involvement, Spatial.Involvement, NonSpatial.Involvement),
+               names_to = "Category", values_to = "Involvement_Level")
+
+# Define custom labels for facets
+category_labels <- c(
+  "Team.Involvement" = "Team Involvement",
+  "Individual.Involvement" = "Individual Involvement",
+  "Spatial.Involvement" = "Spatial Involvement",
+  "NonSpatial.Involvement" = "Non-Spatial Involvement"
+)
+
+# Convert Category into a factor and reorder levels (swap Team and High-Spatial positions)
+long_data$Category <- factor(long_data$Category, 
+                             levels = c("Individual.Involvement", "NonSpatial.Involvement",
+                                        "Team.Involvement", "Spatial.Involvement"))
+
+# Create horizontal boxplot with updated facet order
+ggplot(long_data, aes(y = Involvement_Level, x = Episodic.Memo, fill = Involvement_Level)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Category, ncol = 2, labeller = labeller(Category = category_labels)) + 
+  scale_fill_manual(values = c(
+    "No Involvement" = "#e6f5d0",  # Light green
+    "Beginner" = "#a1d99b",        # Soft green
+    "Intermediate" = "#41ab5d",    # Medium green
+    "Professional" = "#00441b"     # Dark green
+  )) +  # Manually assign colors for discrete levels
+  theme_minimal() +
+  labs(title = "Episodic Memory Scores Across Involvement Categories",
+       x = "Episodic Memory Score",
+       y = "Involvement Level") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, family = "Times"), 
+    axis.title = element_text(size = 10, family = "Times"),               
+    axis.text = element_text(size = 8, family = "Times"),     
+    strip.text = element_text(size = 10, family = "Times", face = "bold"),  # Improve facet labels
+    legend.position = "none"
+  )
+```
+
+Figure 1 shows the relationship between episodic memory scores and four involvement categories (Team, Individual, Spatial, and Non-Spatial), highlighting a trend where higher involvement levels (Intermediate & Professional) correspond to higher median memory scores. In contrast, No Involvement groups exhibit greater variability and more outliers, particularly in Team and Non-Spatial Involvement. The consistent increase in memory scores with higher involvement, especially in Spatial and Individual activities, suggests a potential cognitive benefit, though further statistical analysis is needed to confirm these patterns.
+
+```{r, warning=FALSE, out.width="100%", echo=FALSE, fig.cap="Distribution of Episodic Memory Scores Across Past and Current Fitness Levels"}
+long_data_fitness <- cleaned %>%
+  pivot_longer(cols = c(Past.Fitness, Current.Fitness), 
+               names_to = "Fitness_Type", values_to = "Fitness_Level")
+
+# Define custom labels for facet titles
+fitness_labels <- c(
+  "Past.Fitness" = "Past Fitness Level",
+  "Current.Fitness" = "Current Fitness Level"
+)
+
+# Create the boxplot visualization with refined labels
+ggplot(long_data_fitness, aes(y = Fitness_Level, x = Episodic.Memo, fill = Fitness_Level)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Fitness_Type, ncol = 1, labeller = labeller(Fitness_Type = fitness_labels)) +
+  scale_fill_manual(values = c(
+    "Not fit at all" = "#deebf7",   # Light blue
+    "Slightly fit" = "#9ecae1",     # Soft blue
+    "Moderately fit" = "#6baed6",   # Medium blue
+    "Fit" = "#3182bd",              # Darker blue
+    "Extremely fit" = "#08519c"     # Deep blue
+  )) +  # Assign gradual green shades
+  theme_minimal() +
+  labs(title = "Episodic Memory Scores Across Past and Current Fitness Levels",
+       x = "Episodic Memory Score",
+       y = "Fitness Level") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, family = "Times"), 
+    axis.title = element_text(size = 10, family = "Times"),               
+    axis.text = element_text(size = 8, family = "Times"),                
+    strip.text = element_text(size = 10, family = "Times", face = "bold"),  
+    legend.position = "none"
+  )
+```
+
+Figure 2 illustrates the relationship between episodic memory scores and both past and current fitness levels, showing a general trend where individuals with higher fitness levels tend to have higher median memory scores. The distribution of scores is more compact for those reporting higher current fitness, particularly in the fit and extremely fit categories, suggesting a more consistent association between current fitness and episodic memory. In contrast, past fitness levels exhibit greater variability, especially in the lower fitness groups, implying that past fitness alone may not be a strong predictor of memory performance. The presence of outliers in lower fitness categories suggests potential heterogeneity in how fitness history influences memory, warranting further analysis.
+
+```{r, warning=FALSE, message=FALSE, out.width="100%", echo=FALSE, fig.cap="Scatter Plots of Secondary Predictor's Total Score vs. Episodic Memory"}
+
+long_data_secondary <- cleaned %>%
+  pivot_longer(cols = c(MI.Total, Interoception.Total, 
+                        Proprioception.Total, Mindfulness.Total), 
+               names_to = "Predictor", values_to = "Score")
+
+
+custom_labels <- c(
+  "MI.Total" = "Mental Imagery - Total",
+  "Interoception.Total" = "Interoception - Total",
+  "Proprioception.Total" = "Proprioception - Total",
+  "Mindfulness.Total" = "Mindfulness - Total"
+)
+
+# Create scatter plots with regression lines and custom facet labels
+ggplot(long_data_secondary, aes(x = Score, y = Episodic.Memo)) +
+  geom_point(alpha = 0.6, color = "orange") +  
+  geom_smooth(method = "lm", color = "purple", se = TRUE) +  
+  facet_wrap(~ Predictor, scales = "free_x", ncol = 2, labeller = labeller(Predictor = custom_labels)) +  
+  theme_minimal() +
+  labs(title = "Scatter Plots of Secondary Predictor's Total Score vs. Episodic Memory",
+       x = "Predictor's Total Score",
+       y = "Episodic Memory Score") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, family = "Times"), 
+    axis.title = element_text(size = 10, family = "Times"),               
+    axis.text = element_text(size = 8, family = "Times"), 
+    strip.text = element_text(size = 10, family = "Times", face = "bold"),
+    legend.position = "none")
+```
+
+Figure 3 shows the relationships between episodic memory scores and the total scores of mental imagery, interoception, proprioception, and mindfulness. Each predictor exhibits a slight positive trend, but the relationships appear weak, as indicated by the small slopes of the regression lines and the substantial data dispersion. This suggests that while these cognitive and sensory factors may be related to episodic memory, their individual contributions are likely modest, and other factors may play a more significant role.
+
+# 3. Methods
+
+To address our research question, we analyzed the data in several stages. First, we used one-way ANOVA tests to compare episodic memory scores across six groups: Team Involvement, Individual Involvement, Spatial Involvement, Non-Spatial Involvement, Past Fitness, and Current Fitness. One-way ANOVA is a common method for checking whether the average (mean) outcome—in this case, episodic memory—differs across separate groups or categories. For example, it can reveal if people with Team Involvement have different average memory scores than those with Individual Involvement.
+
+However, one-way ANOVA works best under certain conditions: each group should have data that is fairly normally distributed (has "bell-shaped curve"), and the overall spread of scores (variability) should be similar across groups. To verify these conditions, we used two checks:
+
+-   **Shapiro-Wilk Test**: to see if the data in each group were normally distributed (normality),
+
+-   **Levene's Test**: to determine whether the variability in each group was similar (homogeneity of variances).
+
+If the data did not meet these conditions, we used the Kruskal-Wallis test instead. This non-parametric approach does not assume normal distribution or equal variability, making it a more suitable alternative when those assumptions are violated.
+
+In the next stage, after examining group differences and seeing no clear effects, we proceeded with a multiple linear regression to explore how episodic memory relates to both continuous and categorical predictors. The initial model included four activity involvement levels, two fitness measures, and total scores for mindfulness, mental imagery, interoception, and proprioception.
+
+To refine this model, we applied two selection methods. The first was **Stepwise AIC**, which automatically tests combinations of predictors to find a balance between model accuracy and simplicity. The second was **Elastic Net**, a regularization method that considers many predictors at once and reduces the influence of those that contribute little to the model.
+
+If these methods did not fully address our research question, we considered a second model. This model replaced the total scores (e.g., overall mindfulness) with their respective subscales (e.g., individual mindfulness components). We then repeated the same model selection process using Stepwise AIC and Elastic Net.
+
+To evaluate and compare the models, we used four key measures:
+
+-   **Adjusted R²**: Indicates how much of the outcome's variation is explained by the predictors, while accounting for how many predictors the model uses. A higher adjusted R² means the model explains more of what's happening, while a lower value indicates the model only explains a small portion of the outcome.
+
+-   **AIC (Akaike Information Criterion)**: A measure that weighs a model's fit against its complexity. Lower values usually mean a better fit with fewer predictors.
+
+-   **BIC (Bayesian Information Criterion)**: Similar to AIC but applies a stricter penalty for too many predictors. Again, lower is generally better.
+
+-   **RMSE (Root Mean Squared Error)**: Tells us how far off the model's predictions are from the real data, on average. A smaller RMSE points to more accurate predictions.
+
+After selecting the final model based on these criteria, we carried out a series of checks to make sure it provided trustworthy and meaningful results. We looked at whether the relationships in the data appeared consistent and whether any unusual values might have had too much influence on the results. We also checked that the model worked well across different types of participants and that no single factor overwhelmed the others. These checks suggested that the model was stable and appropriate for drawing conclusions related to our research question.
+
+Once the model's validity was confirmed, we used p-values to assess which results were likely to reflect meaningful relationships rather than random variation. These p-values were calculated using standard two-sided t-tests, which evaluate whether each predictor's estimated effect is likely to differ from zero. In this report, we use a 5% significance level—a common benchmark in research. A p-value below 0.05 suggests the result is statistically significant, meaning it's unlikely to have occurred by chance and may represent a genuine association with episodic memory. A p-value above 0.05 means the result is not statistically significant, and any observed effect should be interpreted more cautiously. This standard helped guide our interpretation of which predictors showed strong, marginal, or weak associations with memory performance in the final model.
+
+# 4. Results
+
+## 4.1 One-Way ANOVA and Kruskal-Wallis Test
+
+```{r ANOVA on Episodic, echo=FALSE}
+models <- list(
+  "Team Involvement" = aov(Episodic.Memo ~ Team.Involvement, data = cleaned),
+  "Individual Involvement" = aov(Episodic.Memo ~ Individual.Involvement, data = cleaned),
+  "Spatial Involvement" = aov(Episodic.Memo ~ Spatial.Involvement, data = cleaned),
+  "Non-Spatial Involvement" = aov(Episodic.Memo ~ NonSpatial.Involvement, data = cleaned),
+  "Past Fitness" = aov(Episodic.Memo ~ Past.Fitness, data = cleaned),
+  "Current Fitness" = aov(Episodic.Memo ~ Current.Fitness, data = cleaned)
+)
+
+# initialize dataframe to store ANOVA results dynamically
+anova_summary <- data.frame(
+  Predictor = character(),
+  Sum_Sq = numeric(),
+  Mean_Sq = numeric(),
+  F_Value = numeric(),
+  Pr_F = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# loop through each model to extract ANOVA summary
+for (predictor in names(models)) {
+  anova_result <- summary(models[[predictor]])[[1]]
+  
+  # extract relevant values
+  sum_sq <- anova_result[1, "Sum Sq"]
+  mean_sq <- anova_result[1, "Mean Sq"]
+  f_value <- anova_result[1, "F value"]
+  p_value <- anova_result[1, "Pr(>F)"]
+  
+  # append results to dataframe
+  anova_summary <- rbind(anova_summary, 
+                         data.frame(Predictor = predictor,
+                                    Sum_Sq = sum_sq,
+                                    Mean_Sq = mean_sq,
+                                    F_Value = f_value,
+                                    Pr_F = p_value))
+}
+
+# format and display table
+kable(anova_summary, caption = "One-Way ANOVA Summary Table for Episodic Memory Scores",
+      col.names = c("Predictor", "Sum of Squares", "Mean Square", "F-Value", "p-Value")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+Table 2 presents the results of multiple one-way ANOVA tests examining whether episodic memory scores differ significantly across various predictor groups. The p-values for all predictors exceed the 0.05 threshold, indicating no statistically significant differences in episodic memory scores across the levels of Team Involvement, Individual Involvement, Spatial Involvement, Non-Spatial Involvement, Past Fitness, and Current Fitness. Additionally, the F-values remain relatively low across all comparisons, suggesting that the variance between groups is not substantially greater than the variance within groups. Given these findings, we proceed with assumption checks to assess the validity of the ANOVA results.
+
+```{r Assmptions Check for ANOVA, echo=FALSE}
+models <- list(
+  "Team Involvement" = aov(Episodic.Memo ~ Team.Involvement, data = cleaned),
+  "Individual Involvement" = aov(Episodic.Memo ~ Individual.Involvement, data = cleaned),
+  "Spatial Involvement" = aov(Episodic.Memo ~ Spatial.Involvement, data = cleaned),
+  "Non-Spatial Involvement" = aov(Episodic.Memo ~ NonSpatial.Involvement, data = cleaned),
+  "Past Fitness" = aov(Episodic.Memo ~ Past.Fitness, data = cleaned),
+  "Current Fitness" = aov(Episodic.Memo ~ Current.Fitness, data = cleaned)
+)
+
+# initialize dataframe to store assumption check results
+assumption_results <- data.frame(
+  Predictor = character(),
+  Shapiro_Wilk_p = numeric(),
+  Levene_p = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# loop through each model and perform assumption checks
+for (predictor in names(models)) {
+  model <- models[[predictor]]
+  
+  # Shapiro-Wilk test for normality of residuals
+  shapiro_test <- shapiro.test(residuals(model))$p.value
+  
+  # extract predictor variable
+  predictor_var <- all.vars(formula(model))[2]
+  
+  # Levene's test for homogeneity of variances
+  levene_test <- leveneTest(residuals(model) ~ cleaned[[predictor_var]])$"Pr(>F)"[1]
+  
+  # store results in dataframe
+  assumption_results <- rbind(assumption_results, 
+                              data.frame(Predictor = predictor,
+                                         Shapiro_Wilk_p = shapiro_test,
+                                         Levene_p = levene_test))
+}
+
+# format and display table
+kable(assumption_results, caption = "One-Way ANOVA Assumption Check Results For Episodic Memory Scores",
+      col.names = c("Predictor", "Shapiro-Wilk p-value", "Levene's Test p-value")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+Table 3 presents the results of assumption checks for the one-way ANOVA models, based on the residuals—the differences between the actual memory scores and the values predicted by each model. Examining residuals allows us to assess how well the model fits the data and whether key assumptions of ANOVA are met, specifically the assumptions of normality and equal variance across groups.
+
+To check for normality, we used the Shapiro-Wilk test. A p-value below 0.05 suggests that the residuals deviate from a normal (bell-shaped) distribution. For most predictors—Team Involvement (p = 0.0049), Spatial Involvement (p = 0.0440), Non-Spatial Involvement (p = 0.0037), Past Fitness (p = 0.0123), and Current Fitness (p = 0.0020)—this assumption was not met. Individual Involvement (p = 0.0513) was close to the threshold, suggesting the residuals were approximately normal.
+
+To test whether the variance of residuals was consistent across groups, we used Levene's test. A p-value below 0.05 indicates that the variability of scores differs significantly between groups, suggesting a violation of the equal variance assumption. Individual Involvement (p = 0.0111) and Spatial Involvement (p = 0.0493) met this criterion, showing evidence of unequal variances. In contrast, the remaining predictors—Team Involvement, Non-Spatial Involvement, Past Fitness, and Current Fitness—had p-values well above 0.05, indicating that the equal variance assumption was likely satisfied.
+
+Since our data did not fully meet the assumptions required for an ANOVA model—particularly normality and equal variance—the Kruskal-Wallis test was used as a more suitable alternative. This non-parametric test does not rely on the same assumptions as ANOVA and is better suited for data that deviate from a normal distribution or show unequal variability across groups. While it may be less sensitive in some cases, the Kruskal-Wallis test allowed us to compare memory scores across groups in a way that was more appropriate for the structure of our data.
+
+```{r Kruskal-Wallis on Episodic, echo=FALSE}
+# create a mapping of original predictor names to more readable labels
+predictor_name_map <- c(
+  "Team.Involvement"       = "Team Involvement",
+  "Individual.Involvement" = "Individual Involvement",
+  "Spatial.Involvement"    = "Spatial Involvement",
+  "NonSpatial.Involvement" = "Non-Spatial Involvement",
+  "Past.Fitness"           = "Past Fitness",
+  "Current.Fitness"        = "Current Fitness"
+)
+
+# define a data frame to store Kruskal-Wallis results
+kruskal_results <- data.frame(
+  Predictor   = character(),
+  Chi_Square  = numeric(),
+  Df          = numeric(),
+  P_Value     = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# list of predictor variables
+predictors <- c(
+  "Team.Involvement",
+  "Individual.Involvement", 
+  "Spatial.Involvement",
+  "NonSpatial.Involvement", 
+  "Past.Fitness", 
+  "Current.Fitness"
+)
+
+# perform Kruskal-Wallis test for each predictor and store results
+for (predictor in predictors) {
+  test <- kruskal.test(Episodic.Memo ~ get(predictor), data = cleaned)
+  
+  # use the mapping to get a more readable label for the predictor
+  readable_label <- predictor_name_map[predictor]
+  
+  kruskal_results <- rbind(
+    kruskal_results, 
+    data.frame(
+      Predictor   = readable_label,
+      Chi_Square  = round(test$statistic, 3),
+      Df          = test$parameter,
+      P_Value     = round(test$p.value, 4),
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+# remove row names for a cleaner output
+rownames(kruskal_results) <- NULL
+
+# display the results in a formatted table
+kable(
+  kruskal_results,
+  caption = "Kruskal-Wallis Test Results for Episodic Memory Scores",
+  col.names = c("Predictor", "Chi-Square", "Degrees of Freedom", "p-value")
+) %>%
+  kable_styling(
+    full_width = FALSE,
+    bootstrap_options = c("striped", "hover", "condensed")
+  )
+```
+
+The Kruskal-Wallis test was conducted to determine whether episodic memory scores significantly differ across various predictor groups, addressing the assumption violations observed in the ANOVA analysis. The results, summarized in Table 4, indicate that none of the predictors reached statistical significance at the 5% level.
+
+Among the predictors, Team Involvement (p = 0.0573) and Current Fitness (p = 0.0770) had the lowest p-values, suggesting a potential trend toward significance, though they did not meet the 0.05 threshold. Other predictors, including Individual Involvement (p = 0.1765), Spatial Involvement (p = 0.2106), Non-Spatial Involvement (p = 0.1071), and Past Fitness (p = 0.5751), showed no strong evidence of group differences in episodic memory scores.
+
+Since the Kruskal-Wallis test, a non-parametric alternative to ANOVA, also failed to reveal significant differences, we will proceed with multiple linear regression analysis to further explore the relationships between these categorical predictors, along with additional numerical predictors, and episodic memory scores.
+
+## 4.2 Multiple Linear Regression
+
+```{r Episodic Linear Regression for Total, include = FALSE}
+full_model_total <- lm(Episodic.Memo ~ MI.Total + Interoception.Total +
+              Proprioception.Total +
+              Mindfulness.Total + Team.Involvement + Individual.Involvement + Spatial.Involvement + NonSpatial.Involvement + Past.Fitness + Current.Fitness, 
+            data = cleaned)
+summary(full_model_total)
+
+# Stepwise Selection based on AIC
+stepwise_selection_model_total <- stepAIC(full_model_total, direction = "both", trace = TRUE)
+summary(stepwise_selection_model_total)
+
+# Elastic Net Selection
+y3 <- cleaned$Episodic.Memo
+X3 <- model.matrix(Episodic.Memo ~ ., data = cleaned[,c("Past.Fitness", "Current.Fitness", "MI.Total", "Interoception.Total", 
+                            "Proprioception.Total", "Mindfulness.Total", 
+                            "Team.Involvement", "Individual.Involvement", 
+                            "Spatial.Involvement", "NonSpatial.Involvement", "Episodic.Memo")])
+
+set.seed(1008144526)
+cv_model <- cv.glmnet(X3, y3, alpha = 0.5)
+best_lambda <- cv_model$lambda.min
+elastic_net_model_total <- glmnet(X3, y3, alpha = 0.5, lambda = best_lambda)
+
+# Extract coefficients from the Elastic Net model
+elastic_net_coefs <- coef(elastic_net_model_total)
+
+elastic_net_model_total <- lm(Episodic.Memo ~ MI.Total, data = cleaned)
+summary(elastic_net_model_total)
+```
+
+```{r Results of Episodic Linear Regression for Total, include = FALSE}
+summary(full_model_total)
+summary(stepwise_selection_model_total)
+summary(elastic_net_model_total)
+```
+
+We first fit a multiple linear regression model that includes four types of involvement levels, past and current fitness levels, and four secondary predictors using their total scores. We then apply stepwise AIC and Elastic Net model selection techniques to refine the model. Surprisingly, both selection methods result in the same final model, which retains only the total mental imagery score as a predictor, with episodic memory as the outcome. The results of this model are presented in Appendix Table 10, and the corresponding model assumption checks are shown in Appendix Figure 6. However, since this model does not directly address our primary research question—whether involvement levels and fitness are significant predictors of episodic memory—we proceed to fit another multiple linear regression model that includes the four types of involvement levels, past and current fitness levels, and the subscale scores of the secondary predictors instead of their total scores.
+
+This refined "new full" model offers a more detailed perspective by using subscale scores rather than total scores, enabling us to pinpoint which specific components of mental imagery, interoception, proprioception, and mindfulness may uniquely influence episodic memory. To ensure consistency in our analysis, we applied the same model selection techniques—Stepwise AIC and Elastic Net—to refine this subscale-based model.
+
+```{r Episodic Linear Regression for Subscales, include = FALSE}
+full_model_subscales <- lm(Episodic.Memo ~ MI.Sight + MI.Hearing + MI.Smell + MI.Taste + 
+              MI.Touch + MI.BodySens + MI.Feeling + 
+              Interoception.CardioAct + Interoception.CardioDeact + Interoception.Gastro +
+              Proprioception.Attent + Proprioception.PosturalAware +
+              Mindfulness.Observe + Mindfulness.Describe + Mindfulness.Nonjudging + 
+              Mindfulness.Nonreact +  Mindfulness.ActAware + Team.Involvement + Individual.Involvement + Spatial.Involvement + NonSpatial.Involvement + Past.Fitness + Current.Fitness,
+            data = cleaned)
+summary(full_model_subscales)
+
+# Stepwise Selection based on AIC
+stepwise_selection_model_subscales <- stepAIC(full_model_subscales, direction = "both", trace = TRUE)
+summary(stepwise_selection_model_subscales)
+
+# Elastic Net Selection
+y <- cleaned$Episodic.Memo
+X <- model.matrix(Episodic.Memo ~ ., data = cleaned[,c("Past.Fitness", "Current.Fitness", "MI.Sight", "MI.Hearing", "MI.Smell", "MI.Taste", 
+                            "MI.Touch", "MI.BodySens", "MI.Feeling", 
+                            "Interoception.CardioAct", "Interoception.CardioDeact", "Interoception.Gastro",
+                            "Proprioception.Attent", "Proprioception.PosturalAware",
+                            "Mindfulness.Observe", "Mindfulness.Describe", "Mindfulness.Nonjudging", 
+                            "Mindfulness.Nonreact", "Mindfulness.ActAware",
+                            "Team.Involvement", "Individual.Involvement", "Spatial.Involvement", "NonSpatial.Involvement", "Episodic.Memo")])
+
+set.seed(1008144526)
+cv_model <- cv.glmnet(X, y, alpha = 0.5)
+best_lambda <- cv_model$lambda.min
+elastic_net_model_subscales <- glmnet(X, y, alpha = 0.5, lambda = best_lambda)
+
+# Extract coefficients from the Elastic Net model
+elastic_net_coefs <- coef(elastic_net_model_subscales)
+
+elastic_net_model_subscales <- lm(Episodic.Memo ~ Current.Fitness + 
+                    MI.Sight + MI.Hearing + 
+                    Mindfulness.Observe + Mindfulness.ActAware + 
+                    Team.Involvement + 
+                    Spatial.Involvement, 
+                  data = cleaned)
+summary(elastic_net_model_subscales)
+```
+
+```{r Results of Episodic Linear Regression for Subscales, include = FALSE}
+summary(full_model_subscales)
+summary(stepwise_selection_model_subscales)
+summary(elastic_net_model_subscales)
+```
+
+```{r Model SelectionResults of Episodic Linear Regression for Subscales, echo = FALSE}
+# Compute Adjusted R² for each model
+adj_r2_full <- summary(full_model_subscales)$adj.r.squared
+adj_r2_stepwise <- summary(stepwise_selection_model_subscales)$adj.r.squared
+adj_r2_elastic_net <- summary(elastic_net_model_subscales)$adj.r.squared
+
+# Compute AIC and BIC for each model
+aic_full <- AIC(full_model_subscales)
+aic_stepwise <- AIC(stepwise_selection_model_subscales)
+aic_elastic_net <- AIC(elastic_net_model_subscales)
+
+bic_full <- BIC(full_model_subscales)
+bic_stepwise <- BIC(stepwise_selection_model_subscales)
+bic_elastic_net <- BIC(elastic_net_model_subscales)
+
+# Compute RMSE for each model
+rmse_full <- rmse(full_model_subscales$fitted.values, full_model_subscales$model$Episodic.Memo)
+rmse_stepwise <- rmse(stepwise_selection_model_subscales$fitted.values, stepwise_selection_model_subscales$model$Episodic.Memo)
+rmse_elastic_net <- rmse(elastic_net_model_subscales$fitted.values, elastic_net_model_subscales$model$Episodic.Memo)
+
+# Create a comparison table
+model_comparison <- data.frame(
+  Model = c("Full Model", "Stepwise Selection Model", "Elastic Net Model"),
+  Adjusted_R2 = c(adj_r2_full, adj_r2_stepwise, adj_r2_elastic_net),
+  AIC = c(aic_full, aic_stepwise, aic_elastic_net),
+  BIC = c(bic_full, bic_stepwise, bic_elastic_net),
+  RMSE = c(rmse_full, rmse_stepwise, rmse_elastic_net)
+)
+
+# Display the table
+kable(model_comparison, caption = "Comparison of Model Performance",
+      col.names = c("Model", "Adjusted R²", "AIC", "BIC", "RMSE")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+We then evaluated model performance using adjusted R², AIC, BIC, and RMSE. As shown in Table 5, the stepwise selection model achieves the highest adjusted R² (0.2538), which—while indicating only a modest portion of the variation explained—still surpasses that of the full model (0.1996) and the Elastic Net model (0.2011). It also has the lowest AIC (946.99) and BIC (980.65), suggesting a better balance between model complexity and how well it fits the data. Although the stepwise model's RMSE (10.63) is slightly higher than that of the full model (9.58), this trade-off is acceptable given its improved simplicity and interpretability.
+
+Notably, the stepwise selection model retains key predictors, particularly those related to mindfulness, sensory perception, and spatial involvement, highlighting their relevance to episodic memory. In contrast, the Elastic Net model does not substantially improve upon the stepwise model, as indicated by its higher AIC (958.83) and only marginally higher adjusted R² (0.2012). Given these findings, we select the stepwise model as the final model because it offers a clearer perspective on how sensorimotor and cognitive measures relate to episodic memory, while maintaining an optimal balance between predictive performance and model simplicity.
+
+Lastly, we reviewed whether the final model met the key conditions needed for reliable results. As detailed in Appendix Figure 5 and Appendix Table 9, most checks showed that the model performed well. The relationships in the data appeared generally consistent, and no major problems were observed. We did note that prediction accuracy varied slightly for higher values, and a few individual data points had a stronger influence than others. Still, the predictors were not overly correlated, and the overall model remained stable. These findings support the model's reliability, though additional adjustments—such as using robust methods—could be considered if more precise conclusions are needed.
+
+### 4.2.1 Estimates & Interpretation
+
+```{r Final Model Results, echo = FALSE}
+summary_final_model <- summary(stepwise_selection_model_subscales)
+coef_table <- as.data.frame(coef(summary_final_model))
+
+model_summary_table <- data.frame(
+  Term = rownames(coef_table),
+  Estimate = round(coef_table$Estimate, 4),
+  `p-value` = round(coef_table$`Pr(>|t|)`, 4),
+  stringsAsFactors = FALSE
+)
+
+row_name_mapping <- c(
+  "(Intercept)" = "Intercept",
+  "MI.Hearing" = "Mental Imagery - Hearing",
+  "MI.Smell" = "Mental Imagery - Smell",
+  "MI.BodySens" = "Mental Imagery - Body Sensation",
+  "Interoception.Gastro" = "Interoception - Gastroception",
+  "Proprioception.PosturalAware" = "Proprioception - Postural Awareness",
+  "Mindfulness.Observe" = "Mindfulness - Observing",
+  "Mindfulness.ActAware" = "Mindfulness - Acting with Awareness",
+  "Spatial.InvolvementBeginner" = "Spatial Involvement - Beginner vs. No Involvement",
+  "Spatial.InvolvementIntermediate" = "Spatial Involvement - Intermediate vs. No Involvement",
+  "Spatial.InvolvementProfessional" = "Spatial Involvement - Professional vs. No Involvement"
+)
+
+model_summary_table$Term <- ifelse(model_summary_table$Term %in% names(row_name_mapping),
+                                   row_name_mapping[model_summary_table$Term],
+                                   model_summary_table$Term)
+
+# Format and display the table
+kable(model_summary_table, caption = "Final Model Summary for Episodic Memory Prediction Based on the Subscale Scores of Secondary Predictors",
+      row.names = FALSE,
+      col.names = c("", "Estimate", "p-value")) %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+The results presented in Table 6, based on the final model, illustrate how various sensorimotor factors relate to episodic memory scores. Beginning with spatial involvement, individuals at the professional level scored 7.0634 points higher on average than those with no involvement (p = 0.0517), holding all else constant. Although this effect is only marginally significant, its magnitude suggests that activities requiring extensive spatial navigation—such as professional dance, sports, or navigation—may support memory performance through their engagement of spatial processing networks. In contrast, individuals at the beginner level scored 3.8864 points lower on average than those with no involvement (p = 0.2847), though this difference is not statistically significant. These findings suggest that substantial spatial engagement may support memory, while minimal exposure may not provide similar benefits.
+
+Turning to mindfulness, the model shows differing impacts for distinct facets. A one-unit increase in mindfulness score related to observing is associated with a 1.1077-point increase on average in episodic memory score (p \< 0.0001), holding all else constant, suggesting that heightened awareness of external events and stimuli supports more effective encoding and retrieval. In contrast, a one-unit increase in mindfulness score oriented toward acting with awareness corresponds to a 0.6851-point decrease on average in episodic memory score (p = 0.0002), also holding all else constant. This similarly strong and significant result indicates that intense focus on one's own actions can redirect cognitive resources away from memory formation, pointing to the delicate balance between external attention and self-directed concentration.
+
+Regarding sensory processing and mental imagery, each estimate is interpreted while holding all else constant. A one-unit increase in mental imagery score focused on body sensations is linked to a 0.6119-point decrease on average in episodic memory score (p = 0.0214), suggesting that excessive inward focus can hinder memory processes. Meanwhile, mental imagery scores tied to hearing and smell exhibit positive coefficients—0.4536 (p = 0.0705) and 0.2646 (p = 0.0963), respectively—though neither is statistically significant. These patterns imply that auditory and olfactory mental imagery may support memory recall under certain conditions, warranting further investigation to clarify their potential benefits.
+
+Finally, interoception and proprioception demonstrate modest relationships with episodic memory, holding all else constant. Specifically, gastroceptive awareness corresponds to a 0.3333-point increase on average in episodic memory score (p = 0.1355), while posture awareness shows a 0.2464-point decrease on average (p = 0.1467). Although neither effect is statistically significant, these estimates suggest that moderate bodily awareness may support memory formation, whereas excessive focus on internal states or an imbalance across sensory modalities could divert attentional resources. Overall, these findings underscore the nuanced roles that spatial engagement, mindfulness orientation, and bodily awareness play in the formation and retrieval of episodic memories.
+
+# 5. Limitations & Discussions
+
+While our study provides promising evidence of a link between sensorimotor abilities and episodic memory, several limitations should be considered when interpreting these findings. First, we relied on an online self-report survey, which may introduce response bias. Some participants may have misunderstood questions or answered in ways they believed were socially acceptable, which could affect the accuracy of their responses.
+
+Another limitation is the makeup of our sample, which consisted mostly of undergraduate students. Because they share similar ages, education levels, and lifestyles, the results may not apply as well to older adults, people from different backgrounds, or those with different health conditions. Future research should include more diverse participants to better understand how these relationships apply across broader populations.
+
+Additionally, while the sample size was sufficient for the primary analyses, it limited our ability to conduct more detailed subgroup comparisons. To preserve statistical power and maintain representativeness, we retained mismatched or incomplete data rather than excluding them. Although this approach helped in retaining a robust sample size, it also carries the risk of introducing bias, which should be considered when interpreting the results.
+
+Another important point to consider is the relatively low R² value in the final model, indicating that the predictors explained only a modest portion of the variation in episodic memory scores. This suggests that other unmeasured factors—such as emotional state, sleep quality, or cognitive engagement—may also contribute meaningfully to memory performance. Future research could explore additional variables or use more comprehensive modelling approaches to improve explanatory power.
+
+Finally, several constructs examined—such as interoception, proprioception, and mental imagery—are complex and multidimensional. The self-report tools used may not fully capture their nuances. Employing more refined or objective assessment methods, along with longitudinal or experimental designs, may offer deeper insights into the directionality and potential causal mechanisms underlying the observed associations.
+
+Overall, while the current study lays important groundwork, future research should address these limitations by incorporating diverse samples, improving measurement precision, and exploring causality through alternative study designs.
+
+# 6. Conclusion
+
+This study examined whether sensorimotor abilities influence episodic memory performance by evaluating multiple facets of physical and cognitive engagement. Specifically, it assessed various forms of physical involvement—including team, individual, spatial, and non-spatial activities—as well as past and current fitness levels across different life stages. In addition, the study analyzed secondary predictors by utilizing both total scores and detailed subscale scores for constructs such as mindfulness, mental imagery, interoception, and proprioception, in order to determine how these diverse factors contribute to the encoding, storage, and retrieval of personal memories.
+
+Our results suggest that individuals who engage more intensively in spatial activities tend to have better episodic memory scores. Additionally, mindfulness appears to play a nuanced role: a focus on external sensory input (observing) seems to support memory encoding, whereas an intense focus on internal actions (acting with awareness) may detract from it. Similarly, various aspects of mental imagery show mixed effects, with some sensory modalities aiding memory retrieval and others potentially hindering it.
+
+It is important to interpret these findings with caution. The study relied on self-report surveys from a predominantly undergraduate sample, and we retained some mismatched or incomplete data to preserve statistical power. These factors may introduce bias and limit the generalizability of our results. Therefore, further research using more diverse samples and objective measures is needed to confirm these associations and clarify their causal direction.
+
+In conclusion, our findings offer preliminary evidence that sensorimotor skills and bodily awareness contribute to the formation and recall of episodic memories. Future studies should explore targeted interventions—such as spatial training and mindfulness-based exercises—to determine whether enhancing these abilities can help prevent memory decline or even improve memory performance.
+
+\newpage
+
+# 7. Appendix
+
+```{r, warning=FALSE, out.width="100%", echo=FALSE, fig.cap="Correlation Matrix of Subscale Variables and Episodic Memory Based on the Final Model"}
+correlation_vars <- cleaned %>%
+  dplyr::select(MI.Hearing, MI.Smell, MI.BodySens, Interoception.Gastro, 
+                Proprioception.PosturalAware, Mindfulness.Observe, 
+                Mindfulness.ActAware, Episodic.Memo)
+
+# Compute correlation matrix
+correlation_matrix <- cor(correlation_vars, use = "complete.obs")
+
+# Convert row names into more readable format
+row_name_mapping <- c(
+  "MI.Hearing" = "Mental Imagery - Hearing",
+  "MI.Smell" = "Mental Imagery - Smell",
+  "MI.BodySens" = "Mental Imagery - Body Sensation",
+  "Interoception.Gastro" = "Interoception - Gastroception",
+  "Proprioception.PosturalAware" = "Proprioception - Postural Awareness",
+  "Mindfulness.Observe" = "Mindfulness - Observing",
+  "Mindfulness.ActAware" = "Mindfulness - Acting with Awareness",
+  "Episodic.Memo" = "Episodic Memory"
+)
+
+# Rename row and column names in the correlation matrix
+rownames(correlation_matrix) <- row_name_mapping[rownames(correlation_matrix)]
+colnames(correlation_matrix) <- row_name_mapping[colnames(correlation_matrix)]
+
+# Plot heatmap using ggcorrplot with improved formatting
+ggcorrplot(correlation_matrix, 
+           method = "square",  # Use square method for alignment
+           type = "lower",  # Show only lower triangle
+           lab = TRUE,  # Display correlation values
+           lab_size = 2,  # Increased text size for better readability
+           digits = 2,  # Round correlation values to 2 decimal places
+           outline.color = "gray",  # Light gray for subtle contrast
+           colors = c("#2166AC", "white", "#B2182B"),  # Higher contrast gradient
+           title = "Correlation Matrix of Subscale Variables and Episodic Memory",
+           ggtheme = theme_minimal()) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, family = "Times", face = "bold"), 
+    axis.text.x = element_text(angle = 30, hjust = 1, size = 7, family = "Times"),  
+    axis.text.y = element_text(size = 7, family = "Times"))
+
+```
+
+```{r Table-Numerical-Summary, echo=FALSE}
+drop_columns <- c("Past.Fitness.Numerical", "Current.Fitness.Numerical", 
+                  "Memo.Diff", "Team.Spatial.Involvement", 
+                  "Team.Nonspatial.Involvement", "Indv.Spatial.Involvement", 
+                  "Indv.Nonspatial.Involvement")
+cleaned <- cleaned %>% dplyr::select(-any_of(drop_columns))
+
+# select only numerical columns
+numerical_data <- cleaned[sapply(cleaned, is.numeric)]
+Numerical_Data <- numerical_data %>% rename(
+  `Year of Birth` = YoB,
+  `Sensorimotor Awareness Score` = SensorAware.total,
+  `Episodic Memory Score` = Episodic.Memo,
+  `Mental Imagery - Sight` = MI.Sight,
+  `Mental Imagery - Hearing` = MI.Hearing,
+  `Mental Imagery - Smell` = MI.Smell,
+  `Mental Imagery - Taste` = MI.Taste,
+  `Mental Imagery - Touch` = MI.Touch,
+  `Mental Imagery - Body Sense` = MI.BodySens,
+  `Mental Imagery - Feeling` = MI.Feeling,
+  `Mental Imagery - Total` = MI.Total,
+  `Interoception - Cardiorespiratory Activation` = Interoception.CardioAct,
+  `Interoception - Cardiorespiratory Deactivation` = Interoception.CardioDeact,
+  `Interoception - Gastroesophageal` = Interoception.Gastro,
+  `Interoception - Total` = Interoception.Total,
+  `Proprioception - Attention Regulation` = Proprioception.Attent,
+  `Proprioception - Postural Awareness` = Proprioception.PosturalAware,
+  `Proprioception - Total` = Proprioception.Total,
+  `Mindfulness - Observe` = Mindfulness.Observe,
+  `Mindfulness - Describe` = Mindfulness.Describe,
+  `Mindfulness - Non-judging` = Mindfulness.Nonjudging,
+  `Mindfulness - Non-react` = Mindfulness.Nonreact,
+  `Mindfulness - Act with Awareness` = Mindfulness.ActAware,
+  `Mindfulness - Total` = Mindfulness.Total)
+# create a custom summary table
+summary_table <- data.frame(
+  Variable = names(Numerical_Data),
+  Min = round(apply(numerical_data, 2, min, na.rm = TRUE), 2),
+  Q1 = round(apply(numerical_data, 2, quantile, probs = 0.25, na.rm = TRUE), 2),
+  Median = round(apply(numerical_data, 2, median, na.rm = TRUE), 2),
+  Mean = round(apply(numerical_data, 2, mean, na.rm = TRUE), 2),
+  Q3 = round(apply(numerical_data, 2, quantile, probs = 0.75, na.rm = TRUE), 2),
+  Max = round(apply(numerical_data, 2, max, na.rm = TRUE), 2)
+)
+
+
+# print numerical summary statistics table 
+kable(summary_table, row.names = FALSE, caption = "Summary Statistics for Numerical Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+```{r Table-Categorical-Summary, echo=FALSE}
+categorical_data <- cleaned[sapply(cleaned, function(x) is.factor(x) || is.character(x))]
+
+# Define categorical variables to keep (check if they exist before selecting)
+keep_columns <- c("Team.Involvement", "Individual.Involvement", "Spatial.Involvement", 
+                  "NonSpatial.Involvement", "Past.Fitness", "Current.Fitness")
+
+# Drop only existing columns to avoid errors
+categorical_data <- categorical_data %>% dplyr::select(any_of(keep_columns))
+
+# Rename columns for better readability
+Categorical_Data <- categorical_data %>%
+  rename(
+    `Team Involvement Level` = Team.Involvement,
+    `Individual Involvement Level` = Individual.Involvement,
+    `Spatial Involvement Level` = Spatial.Involvement,
+    `Non-Spatial Involvement Level` = NonSpatial.Involvement,
+    `Past Fitness Level` = Past.Fitness,
+    `Current Fitness Level` = Current.Fitness
+  )
+
+# Create a summary table for categorical variables
+categorical_summary <- lapply(Categorical_Data, function(x) {
+  freq <- table(x)
+  percent <- round(prop.table(freq) * 100, 2)
+  data.frame(Category = names(freq), Count = as.numeric(freq), Percentage = percent)
+})
+
+# Combine into one data frame with variable names
+summary_df <- do.call(rbind, lapply(names(categorical_summary), function(var_name) {
+  cbind(Variable = var_name, categorical_summary[[var_name]])
+}))
+
+# Print categorical summary statistics table
+kable(summary_df, caption = "Summary Statistics for Categorical Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+```
+
+```{r Assumption Check For Final Model, echo = FALSE, fig.cap="Assumption Check For Final Model Based on the Total Scores of Secondary Predictors"}
+par(mfrow = c(2,2), mar = c(4,4,2,2))
+
+residuals <- residuals(stepwise_selection_model_subscales)
+fitted_values <- fitted(stepwise_selection_model_subscales)
+sqrt_residuals <- sqrt(abs(residuals))
+cooks <- cooks.distance(stepwise_selection_model_subscales)
+
+# 1. Residuals vs Fitted
+plot(fitted_values, residuals, 
+     main = "Residuals vs Fitted",
+     xlab = "Fitted Values", ylab = "Residuals",
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# 2. Normal Q-Q Plot
+qqnorm(residuals, pch = 16, col = "blue", main = "Normal Q-Q Plot")
+qqline(residuals, col = "red", lwd = 2)
+
+# 3. Scale-Location Plot
+plot(fitted_values, sqrt_residuals,
+     main = "Scale-Location Plot",
+     xlab = "Fitted Values", ylab = "√|Residuals|",
+     pch = 16, col = "blue")
+abline(h = median(sqrt_residuals), col = "red", lwd = 2)
+
+# 4. Cook's Distance
+plot(cooks, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     col = "blue", lwd = 2)
+abline(h = 4 / length(cooks), col = "red", lwd = 2, lty = 2)
+
+# Reset plot layout to default (optional)
+par(mfrow = c(1,1))
+
+```
+
+```{r VIF Results, echo = FALSE}
+row_name_mapping <- c(
+  "(Intercept)" = "Intercept",
+  "MI.Hearing" = "Mental Imagery - Hearing",
+  "MI.Smell" = "Mental Imagery - Smell",
+  "MI.BodySens" = "Mental Imagery - Body Sensation",
+  "Interoception.Gastro" = "Interoception - Gastroception",
+  "Proprioception.PosturalAware" = "Proprioception - Postural Awareness",
+  "Mindfulness.Observe" = "Mindfulness - Observing",
+  "Mindfulness.ActAware" = "Mindfulness - Acting with Awareness",
+  "Spatial.Involvement" = "Spatial Involvement"
+)
+
+vif_values <- vif(stepwise_selection_model_subscales)
+
+if (is.matrix(vif_values)) {
+  vif_table <- data.frame(
+    GVIF         = vif_values[, 1],
+    Df           = vif_values[, 2],
+    Adjusted_VIF = vif_values[, 3]  # GVIF^(1/(2*Df))
+  )
+  old_rownames <- rownames(vif_values)
+  new_rownames <- row_name_mapping[old_rownames]
+  rownames(vif_table) <- ifelse(is.na(new_rownames), old_rownames, new_rownames)
+  
+} else {
+  vif_table <- data.frame(
+    Variable = names(vif_values),
+    VIF      = vif_values
+  )
+  vif_table$Variable <- ifelse(
+    vif_table$Variable %in% names(row_name_mapping),
+    row_name_mapping[vif_table$Variable],
+    vif_table$Variable
+  )
+}
+
+kable(vif_table, caption = "Variance Inflation Factor (VIF) Table Based on Final Model") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+```{r Final Model Results of Episodic Linear Regression for Total, echo = FALSE}
+model <- lm(Episodic.Memo ~ MI.Total, data = cleaned)
+summary_model <- summary(model)
+coef_table <- as.data.frame(coef(summary_model))
+conf_int <- confint(model)
+
+model_summary_table <- data.frame(
+  Estimate = round(coef_table$Estimate, 4),
+  `95% CI Lower` = round(conf_int[, 1], 4),
+  `95% CI Upper` = round(conf_int[, 2], 4),
+  `p-value` = round(coef_table$`Pr(>|t|)`, 4)
+)
+
+rownames(model_summary_table) <- c("Intercept", "Mental Imagery Total Scores")
+colnames(model_summary_table) <- c("Estimate", "95% CI Lower", "95% CI Upper", "p-value")
+
+kable(model_summary_table, caption = "Model Summary for Episodic Memory Prediction Based on the Total Scores of Secondary Predictors") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+```{r  Model Assumptions Check of Episodic Linear Regression for Total, echo = FALSE, fig.cap="Assumptions Check of Episodic Linear Regression Based on the Total Scores of Secondary Predictors"}
+# Extract diagnostic values
+residuals <- residuals(model)
+fitted_values <- fitted(model)
+sqrt_residuals <- sqrt(abs(residuals))
+cooks <- cooks.distance(model)
+
+# Set up 2x2 plotting layout
+par(mfrow = c(2,2), mar = c(4,4,2,2))
+
+# 1. Residuals vs Fitted
+plot(fitted_values, residuals, 
+     main = "Residuals vs Fitted",
+     xlab = "Fitted Values", ylab = "Residuals",
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# 2. Normal Q-Q Plot
+qqnorm(residuals, pch = 16, col = "blue", main = "Normal Q-Q Plot")
+qqline(residuals, col = "red", lwd = 2)
+
+# 3. Scale-Location Plot
+plot(fitted_values, sqrt_residuals,
+     main = "Scale-Location Plot",
+     xlab = "Fitted Values", ylab = "√|Residuals|",
+     pch = 16, col = "blue")
+abline(h = median(sqrt_residuals), col = "red", lwd = 2)
+
+# 4. Cook's Distance
+plot(cooks, type = "h",
+     main = "Cook's Distance",
+     ylab = "Cook's Distance",
+     col = "blue", lwd = 2)
+abline(h = 4 / length(cooks), col = "red", lwd = 2, lty = 2)
+
+# Reset plot layout to default (optional)
+par(mfrow = c(1,1))
+```
+
+# 8. References
+
+Andrade, J., May, J., Deeprose, C., Baugh, S.-J., & Ganis, G. (2014). Assessing vividness of mental imagery: The Plymouth Sensory Imagery Questionnaire. *British Journal of Psychology, 105*(4), 547–563. <https://doi.org/10.1111/bjop.12050>
+
+Baer, R. A., Smith, G. T., Hopkins, J., Krietemeyer, J., & Toney, L. (2006). Using self-report assessment methods to explore facets of mindfulness. *Assessment, 13*(1), 27–45. <https://doi.org/10.1177/1073191105283504>
+
+Colgan, D. D., Green, K., Eddy, A., Brems, C., Sherman, K. J., Cramer, H., Oken, B., & Christopher, M. (2021). Translation, cross-cultural adaptation, and psychometric validation of the English version of the Postural Awareness Scale. *Pain Medicine, 22*(11), 2686–2699. <https://doi.org/10.1093/pm/pnab200>
+
+Palombo, D. J., Williams, L. J., Abdi, H., & Levine, B. (2013). The survey of autobiographical memory (SAM): A novel measure of trait mnemonics in everyday life. *Cortex, 49*(6), 1526–1540. <https://doi.org/10.1016/j.cortex.2012.08.023>
+
+Vlemincx, E., Walentynowicz, M., Zamariola, G., Van Oudenhove, L., & Luminet, O. (2021). A novel self-report scale of interoception: The three-domain interoceptive sensations questionnaire (THISQ). *Psychology & Health*, 1–20. <https://doi.org/10.1080/08870446.2021.2009479>
