@@ -9,7 +9,6 @@ This project investigates how various sensorimotor and cognitive factors—such 
 - Mindfulness focused on *acting with awareness* and body-focused imagery are negatively associated with memory.
 - Total fitness, interoception, and proprioception showed weaker or non-significant associations.
 
----
 
 ## Project Structure
 
@@ -19,7 +18,6 @@ This project investigates how various sensorimotor and cognitive factors—such 
 - `plots/`: (Optional) Visualizations used in the report.
 - `scripts/`: (Optional) R scripts for data cleaning, analysis, and model building.
 
----
 
 ## Methodology
 
@@ -37,8 +35,6 @@ This project investigates how various sensorimotor and cognitive factors—such 
   - One-way ANOVA & Kruskal-Wallis tests
   - Multiple linear regression with model selection (Stepwise AIC, Elastic Net)
 
----
-
 ## Results Summary
 
 | Predictor                        | Direction | Significance |
@@ -51,15 +47,11 @@ This project investigates how various sensorimotor and cognitive factors—such 
 Adjusted R² of final model: ~0.25  
 RMSE: ~10.6  
 
----
-
 ## Limitations
 
 - Homogeneous sample (mostly undergrads)
 - Self-report data prone to bias
 - Modest model fit (many unexplained factors remain)
-
----
 
 ## Future Directions
 
@@ -67,8 +59,6 @@ RMSE: ~10.6
 - Extend to diverse populations and age groups
 - Explore causal mechanisms using experimental designs
 - Investigate interventions like spatial training or mindfulness-based cognitive therapy
-
----
 
 ## Citation
 
