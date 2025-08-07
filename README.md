@@ -64,7 +64,6 @@ RMSE: ~10.6
 
 Zhang, E. (2025). *Spatial Activity and Observing Mindfulness Enhance Episodic Memory, While Acting with Awareness and Body-Focused Imagery Impair It: A Sensorimotor-Cognitive Analysis*. University of Toronto.
 
----
 
 ## License
 
